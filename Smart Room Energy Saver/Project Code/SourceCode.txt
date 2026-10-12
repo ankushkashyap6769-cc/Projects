@@ -1,0 +1,129 @@
+// Pin Definitions
+#define PIR_SENSOR 2        // Motion sensor (Digital)
+#define LDR_SENSOR A0       // Light sensor (Analog)
+#define TEMP_SENSOR A1      // Temperature sensor TMP36 (Analog)
+#define LED_PIN 8           // LED representing room light
+#define FAN_PIN 9           // Fan control (PWM for speed)
+#define BUZZER_PIN 10       // Optional buzzer for alerts
+
+// Thresholds
+#define LIGHT_THRESHOLD 500  // If LDR value < 500, it's dark (adjust as needed)
+#define TEMP_THRESHOLD 28    // Fan turns on above 28Â°C
+#define MOTION_DELAY 10000   // Keep devices on for 10 seconds after last motion
+
+// Variables
+int ldrValue = 0;
+int tempValue = 0;
+float temperatureC = 0;
+int motionState = 0;
+int lastMotionState = 0;
+unsigned long lastMotionTime = 0;
+bool roomOccupied = false;
+
+void setup() {
+  // Initialize Serial Monitor
+  Serial.begin(9600);
+  Serial.println("=================================");
+  Serial.println("SMART ROOM ENERGY SAVER SYSTEM");
+  Serial.println("=================================");
+  
+  // Pin Modes
+  pinMode(PIR_SENSOR, INPUT);
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(FAN_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  
+  // Initial state - everything OFF
+  digitalWrite(LED_PIN, LOW);
+  digitalWrite(FAN_PIN, LOW);
+  digitalWrite(BUZZER_PIN, LOW);
+  
+  Serial.println("System Ready!");
+  Serial.println("---------------------------------");
+}
+
+void loop() {
+  // Read all sensors
+  motionState = digitalRead(PIR_SENSOR);
+  ldrValue = analogRead(LDR_SENSOR);
+  tempValue = analogRead(TEMP_SENSOR);
+  
+  // Convert temperature sensor reading to Celsius
+  // TMP36: Vout = 500mV at 0Â°C, 10mV per degree
+  float voltage = tempValue * (5.0 / 1023.0);
+  temperatureC = (voltage - 0.5) * 100.0;
+  
+  // Motion Detection Logic
+  if (motionState == HIGH) {
+    if (lastMotionState == LOW) {
+      Serial.println(">>> MOTION DETECTED! <<<");
+      tone(BUZZER_PIN, 1000, 100); // Short beep
+    }
+    roomOccupied = true;
+    lastMotionTime = millis();
+    lastMotionState = HIGH;
+  } else {
+    lastMotionState = LOW;
+    // Check if enough time has passed since last motion
+    if (millis() - lastMotionTime > MOTION_DELAY) {
+      roomOccupied = false;
+    }
+  }
+  
+  // Smart Light Control
+  // Turn ON lights only if: Room is occupied AND it's dark
+  if (roomOccupied && ldrValue < LIGHT_THRESHOLD) {
+    digitalWrite(LED_PIN, HIGH);
+    Serial.println("[LIGHT] ON - Room occupied & dark");
+  } else {
+    digitalWrite(LED_PIN, LOW);
+    if (!roomOccupied) {
+      Serial.println("[LIGHT] OFF - No motion detected");
+    } else {
+      Serial.println("[LIGHT] OFF - Sufficient ambient light");
+    }
+  }
+  
+  // Smart Fan Control
+  // Turn ON fan only if: Room is occupied AND temperature is high
+  if (roomOccupied && temperatureC > TEMP_THRESHOLD) {
+    // Fan speed based on temperature (PWM)
+    int fanSpeed = map(temperatureC, TEMP_THRESHOLD, 50, 150, 255);
+    fanSpeed = constrain(fanSpeed, 150, 255);
+    analogWrite(FAN_PIN, fanSpeed);
+    Serial.print("[FAN] ON - Speed: ");
+    Serial.print((fanSpeed/255.0)*100);
+    Serial.println("%");
+  } else {
+    analogWrite(FAN_PIN, 0);
+    if (!roomOccupied) {
+      Serial.println("[FAN] OFF - No motion detected");
+    } else {
+      Serial.println("[FAN] OFF - Temperature normal");
+    }
+  }
+  
+  // Display Status
+  Serial.println("---------------------------------");
+  Serial.print("Room Status: ");
+  Serial.println(roomOccupied ? "OCCUPIED" : "EMPTY");
+  Serial.print("Light Level: ");
+  Serial.print(ldrValue);
+  Serial.println(ldrValue < LIGHT_THRESHOLD ? " (DARK)" : " (BRIGHT)");
+  Serial.print("Temperature: ");
+  Serial.print(temperatureC);
+  //Serial.println(" Â°C");
+  
+  // Energy Saving Calculation (Estimated)
+  float energySaved = 0;
+  if (!roomOccupied) {
+    energySaved = 0.1; // Assuming 100W saved per hour when devices are off
+  }
+  Serial.print("Energy Saving: ");
+  Serial.print(energySaved);
+  Serial.println(" kWh (estimated)");
+  Serial.println("---------------------------------");
+  Serial.println();
+
+  delay(3000); // Update every 3 seconds
+}
